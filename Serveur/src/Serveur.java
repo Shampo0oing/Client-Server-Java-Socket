@@ -8,17 +8,23 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Scanner;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.util.zip.ZipOutputStream;
+import java.util.zip.ZipEntry;
+import java.time.format.DateTimeFormatter;  
+import java.time.LocalDateTime;    
 
 public class Serveur 
 {
 	private static ServerSocket listener;
 	
+	/*
+	 * serverAddressVerification() verifie que l adresse ip est correcte
+	 * serverAddress est l adresse telle qu ecrite par l utilisateur
+	 */
 	private static boolean serverAddressVerification(String serverAddress)
 	{	
-		
-		/*
-		 * Fonction qui vérifie si l'adresse ip donnée est correcte.
-		 */
 		
 		// On vérifie d'abord que l'adresse ne commence ni ne termine pas par un point.
 		if (serverAddress.startsWith(".") || serverAddress.endsWith("."))
@@ -54,12 +60,149 @@ public class Serveur
 		}
 		return true;
 	}
+	/*
+	 * cdCommand() change de dossier en fonction de l argument. Si le dossier ou on veut aller n existe pas on retourne un message d erreur au client qui l affichera.
+	 * directoryChange est l argument i.e. c est le dossier ou on veut aller.
+	 * newDirectory est dossier courant (ou on se trouve) cote serveur.
+	 * rootDirectory est le dossier racine du serveur.
+	 */
+	private static String cdCommand(String directoryChange, String currentDirectory, String rootDirectory)
+	{
+		String[] directoryChangeParts = directoryChange.split("/");
+		String result = "success";
+		
+		for (int i=0; i<directoryChangeParts.length; i++)
+		{
+			if (directoryChangeParts[i].equals("..")) // On veut aller au parent
+			{
+				
+				// Si on est pas encore au dossier root, on va aller au directory parent. Si on y est on fait rien.
+				if (!currentDirectory.equals(rootDirectory)) 
+				{
+					int parentDirectoryIndex = currentDirectory.lastIndexOf("/");
+					currentDirectory = currentDirectory.substring(0, parentDirectoryIndex);
+				} 
+			} else // On veut aller à un directory fils.
+			{
+				File cdCheckDirectory = new File(currentDirectory + ("/") + directoryChangeParts[i]);
+				if (cdCheckDirectory.isDirectory()) // Directory exists
+				{
+					currentDirectory = currentDirectory + ("/") + directoryChangeParts[i];
+				} else // Directory doesn't exist
+				{
+					// Affichera une erreur expliquant le premier dossier du chemin qui fait un bug.
+					result = "Directory " + currentDirectory + ("/") + directoryChangeParts[i] + " mentionned in path doesn't exist (using cd command)";
+					break;
+				}
+			}
+		}
+		if (result.equals("success"))
+		{
+			return currentDirectory;
+		} else
+		{
+			return result;
+		}
+	}
+	
+	
+	private static void downloadFile(String file, String downloadDirectory, DataOutputStream out, boolean zipped)
+	{
+		
+		if (zipped) 
+		{
+			try
+			{
+				// Grandement inspire d un contenu internet (https://www.baeldung.com/java-compress-and-uncompress)
+				// On va d abord creer le fichier compresse cote serveur puis le transferer cote client puis le supprimer cote serveur.
+				// Il y a probablement un moyen plus efficace de le faire mais j ai pas reussi.
+				String sourceFile = downloadDirectory + "/" + file;
+				String fileZIP = downloadDirectory + "/" + file.split("\\.")[0] + ".zip";
+		        FileOutputStream fos = new FileOutputStream(fileZIP);
+		        ZipOutputStream zipOut = new ZipOutputStream(fos);
+		        File fileToZip = new File(sourceFile);
+		        FileInputStream fis = new FileInputStream(fileToZip);
+		        ZipEntry zipEntry = new ZipEntry(fileToZip.getName());
+		        zipOut.putNextEntry(zipEntry);
+		        byte[] bytes = new byte[1024];
+		        int length;
+		        while((length = fis.read(bytes)) >= 0) {
+		            zipOut.write(bytes, 0, length);
+		        }
+		        zipOut.close();
+		        fis.close();
+		        fos.close();
+		        
+		        // On transmet le fichier zip cree du cote client.
+		        File myFile = new File(fileZIP);
+		        FileInputStream fileInput = new FileInputStream(myFile);
+		        int nbrBytes = (int) myFile.length();
+		        out.writeInt(nbrBytes);
+				int count = 0;
+				
+				while (count < nbrBytes)
+				{
+					out.write(fileInput.read());
+					out.flush();
+					count = count + 1;
+				}
+				out.flush();
+				fileInput.close();
+				
+				// On va supprimer le fichier zip cree cote serveur.
+				
+		        
+			} catch(IOException e)
+			{
+				System.out.println("IOException\n" + e); // Should never happen as we already verified the file exists
+			}
+		} else 
+		{
+			try 
+			{
+				File myFile = new File(downloadDirectory + "/" + file);
+				FileInputStream fileInput = new FileInputStream(myFile);
+				int nbrBytes = (int) myFile.length();
+				out.writeInt(nbrBytes);
+				int count = 0;
+				
+				while (count < nbrBytes)
+				{
+					out.write(fileInput.read());
+					out.flush();
+					count = count + 1;
+				}
+				out.flush();
+				fileInput.close();
+				
+			} catch (IOException e)
+			{
+				System.out.println("IOException\n" + e); // Should never happen as we already verified the file exists
+			}
+		}
+		
+	}
+	
+	private static void deleteDirectory(String path)
+	{
+		File deleteDirectory = new File(path);
+		File[] allUnderlyingFiles = deleteDirectory.listFiles();
+		
+		for (int i = 0; i<allUnderlyingFiles.length; i++)
+		{
+			if (!allUnderlyingFiles[i].delete())
+			{
+				deleteDirectory(allUnderlyingFiles[i].toString()); // on est tombe sur un nouveau dossier non vide donc on appelle la fonction a nouveau.
+				allUnderlyingFiles[i].delete();
+			}
+		}
+	}
 	
 	/*
 	 * Application Serveur
 	 */
 	public static void main(String[] args) throws Exception
-	{
+	{		
 		// dossier root du serveur.
 		final String directory = System.getProperty("user.dir");
 		
@@ -101,7 +244,6 @@ public class Serveur
 			try
 			{
 				serverPort = Integer.parseInt(reader.nextLine());
-				System.out.println("Server port entered is " + serverPort);
 				
 				if (serverPort >= 5002 && serverPort <= 5049)
 				{
@@ -179,6 +321,9 @@ public class Serveur
 		{
 			try 
 			{
+				// Format d affichage de la date et de l heure.
+				DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy/MM/dd @ HH:mm:ss");  
+				
 				// Création d'un canal sortant pour envoyer des messages au client
 				DataOutputStream out = new DataOutputStream(socket.getOutputStream());
 				
@@ -193,6 +338,8 @@ public class Serveur
 					{
 						// lecture de la commande envoyée par le client.
 						String command = in.readUTF();
+						LocalDateTime now = LocalDateTime.now();  
+						System.out.format("[%s // %s] %s\n", socket.getRemoteSocketAddress(), dtf.format(now), command);
 						
 						//System.out.println("command recieved is " + command);
 						
@@ -208,41 +355,16 @@ public class Serveur
 								
 								// On va changer le dossier courant.
 								
-								String newDirectory = currentDirectory;
-								String directoryChange = command.split(" ")[1];
-								String[] directoryChangeParts = directoryChange.split("/");
-								String result = "success";
+								String cdResult = cdCommand(command.split(" ")[1], currentDirectory, rootDirectory);
 								
-								for (int i=0; i<directoryChangeParts.length; i++)
+								if (cdResult.startsWith("Directory "))
 								{
-									if (directoryChangeParts[i].equals("..")) // On veut aller au parent
-									{
-										
-										// Si on est pas encore au dossier root, on va aller au directory parent. Si on y est on fait rien.
-										if (!newDirectory.equals(rootDirectory)) 
-										{
-											int parentDirectoryIndex = newDirectory.lastIndexOf("/");
-											newDirectory = newDirectory.substring(0, parentDirectoryIndex);
-										} 
-									} else // On veut aller à un directory fils.
-									{
-										File cdCheckDirectory = new File(newDirectory + ("/") + directoryChangeParts[i]);
-										if (cdCheckDirectory.isDirectory()) // Directory exists
-										{
-											newDirectory = newDirectory + ("/") + directoryChangeParts[i];
-										} else // Directory doesn't exist
-										{
-											// Affichera une erreur expliquant le premier dossier du chemin qui fait un bug.
-											result = "Directory " + newDirectory + ("/") + directoryChangeParts[i] + " mentionned in path doesn't exist";
-											break;
-										}
-									}
-								}
-								if (result.equals("success"))
+									out.writeUTF(cdResult); // Il y a eu une erreur
+								} else 
 								{
-									currentDirectory = newDirectory;
+									currentDirectory = cdResult; // Pas d erreur on change le dossier courant
+									out.writeUTF("You are now in directory " + currentDirectory);
 								}
-								out.writeUTF(result);
 								
 								break;
 								
@@ -252,14 +374,244 @@ public class Serveur
 								
 								File lsCurrent = new File(currentDirectory);
 								File[] lsResults = lsCurrent.listFiles();
-								String answer = "";
+								String answer = "\n";
 								for (int i=0; i<lsResults.length; i++)
 								{
-									answer = answer + lsResults[i].toString().split("/")[lsResults[i].toString().split("/").length-1] + "   ";
+									if (lsResults[i].isDirectory())
+									{
+										answer = answer + "[Directory] " + lsResults[i].toString().split("/")[lsResults[i].toString().split("/").length-1] + "\n";
+									} else
+									{
+										answer = answer + "[File] " + lsResults[i].toString().split("/")[lsResults[i].toString().split("/").length-1] + "\n";
+									}
 								}
 								
 								// On envoie la réponse au client.
 								out.writeUTF(answer);
+								
+								break;
+								
+							case "mkdir":
+								
+								String mkdirFile = command.split(" ")[1];
+								File mkdirCurrent = new File(currentDirectory);
+								File[] mkdirResults = mkdirCurrent.listFiles();
+								boolean mkdirExists = false;
+								for (int i=0; i < mkdirResults.length; i++)
+								{
+									if (mkdirFile.equals(mkdirResults[i].toString().split("/")[mkdirResults[i].toString().split("/").length-1]))
+									{
+										mkdirExists = true;
+									}
+								}
+								
+								if (mkdirExists)
+								{
+									// Le fichier existe on s assure aupres du client si il veut remplacer ou non.
+									out.writeUTF("Directory " + mkdirFile + " already exists on the server side. Do you want to overwrite? [y/n]");
+									String mkdirOverwriteAnswer = in.readUTF();
+									if (mkdirOverwriteAnswer.equals("n") || mkdirOverwriteAnswer.equals("N")) 
+									{
+										// Le client a decide de ne pas overwrite le fichier donc mkdir ne se fait pas
+										break;
+									} else 
+									{
+										// Le client veut overwrite le dossier existant. On va commencer par le supprimer
+										deleteDirectory(mkdirCurrent + "/" + mkdirFile);
+										File existingDirectory = new File(mkdirCurrent + "/" + mkdirFile);
+										if (!existingDirectory.delete())
+										{
+											out.writeUTF("An error occured while to overwrite directory" + mkdirFile);
+										}
+									}
+								}
+								
+								File newMkdir = new File(mkdirCurrent + "/" + mkdirFile);
+								if (newMkdir.mkdir())
+								{
+									out.writeUTF(mkdirFile + " was successfully created");
+								} else
+								{
+									out.writeUTF("An error occured while trying to create directory " + mkdirFile);
+								}
+								
+								break;
+							
+							case "delete":
+								
+								// on regarde d abord si le nom est donne comme un chemin ou pas;
+								String deleteName = command.split(" ")[1];
+								String deleteDirectory = currentDirectory;
+								
+								if (deleteName.split("/").length>1)
+								{
+									int parentDirectoryDelete = deleteName.lastIndexOf("/");
+									String directoryChangeDelete = deleteName.substring(0, parentDirectoryDelete);
+									deleteName = deleteName.substring(parentDirectoryDelete);
+									String deleteResult = cdCommand(directoryChangeDelete, currentDirectory, rootDirectory);
+									
+									if (deleteResult.startsWith("Directory "))
+									{
+										out.writeUTF(deleteResult);
+										break;
+									} else
+									{
+										deleteDirectory = deleteResult;
+									}
+								}
+								
+								// A ce point on a que deleteCurrent est le dossier duquel le delete doit se faire ( que le fichier ait ete donne en chemin ou pas)
+								// Aussi on a dans la variable deleteName simplement le nom du fichier donc sans chemin.
+								
+								// On va verifier que le fichier existe cote serveur.
+								File deleteCurrent = new File(deleteDirectory);
+								File[] deleteResults = deleteCurrent.listFiles();
+								boolean deleteExists = false;
+						
+								for (int i=0; i < deleteResults.length; i++)
+								{
+									if (deleteName.equals(deleteResults[i].toString().split("/")[deleteResults[i].toString().split("/").length-1]))
+									{
+										deleteExists = true;
+									}
+								}
+								
+								if (!deleteExists)
+								{
+									out.writeUTF("File/Directory " + deleteName + "doesn't exist");
+								}
+								
+								File deleteFile = new File(currentDirectory + "/" + deleteName);
+								try 
+								{
+									if (deleteFile.delete())
+									{
+										out.writeUTF(deleteName + " has been deleted");
+									} else 
+									{
+										// Comme on est sur que le fichier existe a ce point cela veut dire qu il s agit d un dossier non vide.
+										// On va donc supprimer tous les fichiers un par un puis le dossier.
+										deleteDirectory(currentDirectory + "/" + deleteName);
+										deleteFile.delete();
+										out.writeUTF(deleteName + " has been deleted as well as all underlying directories");
+									}
+								} catch (IOException e) 
+								{
+									out.writeUTF("File not found");
+								}
+
+								break;
+								
+							case "upload":
+								
+								// System.out.println("Received " + command);
+								
+								
+								// On regarde si le fichier existe cote serveur.
+								String fileUpload = command.split(" ")[1];
+								File uploadCurrent = new File(currentDirectory);
+								File[] uploadResults = uploadCurrent.listFiles();
+								boolean uploadexists = false;
+								for (int i=0; i < uploadResults.length; i++)
+								{
+									if (fileUpload.equals(uploadResults[i].toString().split("/")[uploadResults[i].toString().split("/").length-1]))
+									{
+										uploadexists = true;
+									}
+								}
+								
+								if (uploadexists)
+								{
+									// Le fichier existe on s assure aupres du client si il veut remplacer ou non.
+									out.writeUTF("File " + fileUpload + " already exists on the server side. Do you want to overwrite? [y/n]");
+									String overwriteAnswer = in.readUTF();
+									if (overwriteAnswer.equals("n") || overwriteAnswer.equals("N")) 
+									{
+										// Le client a decide de ne pas overwrite le fichier donc l upload ne se fait pas
+										break;
+									}
+								} else
+								{
+									out.writeUTF("OK");
+								}
+								
+								// Arrive ici l upload va se faire.
+								
+								File myFile = new File(currentDirectory + "/" + fileUpload);
+								FileOutputStream fileOutput = new FileOutputStream(myFile);
+								int nbrBytes = in.readInt();
+								int count = 0;
+								
+								while(count<nbrBytes)
+								{
+									fileOutput.write(in.read());
+									fileOutput.flush();
+									count = count+1;
+								}
+								fileOutput.close();
+
+								out.writeUTF("File " + fileUpload + " has been uploaded successfully " + nbrBytes);
+
+								break;
+								
+							case "download":
+								
+								String fileDownload = command.split(" ")[1];
+								String downloadDirectory = currentDirectory;
+								
+								// On regarde d abord si le fichier est donne en chemin. Si c est le cas on va considerer le chemin.
+								if (fileDownload.split("/").length > 1)
+								{
+									int parentDirectoryDownload = fileDownload.lastIndexOf("/");
+									String directoryChange = fileDownload.substring(0, parentDirectoryDownload);
+									fileDownload = fileDownload.substring(parentDirectoryDownload+1);
+									String downloadResult = cdCommand(directoryChange, currentDirectory, rootDirectory);
+									
+									if (downloadResult.startsWith("Directory "))
+									{
+										out.writeUTF(downloadResult); // Il y a eu une erreur
+										break;
+									} else 
+									{
+										downloadDirectory = downloadResult; // Pas d erreur on change le dossier d ou le download doit se faire
+									}
+								}
+								
+								// A ce point on a que downloadCurrent est le dossier duquel le download doit se faire ( que le fichier ait ete donne en chemin ou pas)
+								// Aussi on a dans la variable fileDownload simplement le nom du fichier donc sans chemin.
+								
+								// On va verifier que le fichier existe cote serveur.
+								File downloadCurrent = new File(downloadDirectory);
+								File[] downloadResults = downloadCurrent.listFiles();
+								boolean downloadexists = false;
+								for (int i=0; i < downloadResults.length; i++)
+								{
+									if (fileDownload.equals(downloadResults[i].toString().split("/")[downloadResults[i].toString().split("/").length-1]))
+									{
+										downloadexists = true;
+									}
+								}
+								
+								if (downloadexists)
+								{
+									// Le fichier existe on va donc commencer le download mais on envoie d abord au client un message disant que le download va se faire
+									out.writeUTF("Prepare Download");
+									if (command.split(" ")[command.split(" ").length-1].equals("-z"))
+									{
+										downloadFile(fileDownload, downloadDirectory, out, true);
+										out.writeUTF("File " + fileDownload.split("\\.")[0] + ".zip" + " has been downloaded successfully");
+									} else
+									{
+										downloadFile(fileDownload, downloadDirectory, out, false);
+										out.writeUTF("File " + fileDownload + " has been downloaded successfully");
+									}
+								} else
+								{
+									// Le fichier n existe pas on va envoyer un message d erreur au client.
+									out.writeUTF("File " + fileDownload + " doesn't exist in directory " + downloadCurrent);
+								}
+								
+								
 								
 								break;
 								
@@ -297,18 +649,6 @@ public class Serveur
 		}
 	}
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
