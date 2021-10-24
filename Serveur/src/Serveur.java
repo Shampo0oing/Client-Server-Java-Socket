@@ -66,9 +66,9 @@ public class Serveur
 	 * newDirectory est dossier courant (ou on se trouve) cote serveur.
 	 * rootDirectory est le dossier racine du serveur.
 	 */
-	private static String cdCommand(String directoryChange, String currentDirectory, String rootDirectory)
+	private static String cdCommand(String directoryChange, String currentDirectory, String rootDirectory, String pathSeparator)
 	{
-		String[] directoryChangeParts = directoryChange.split("/");
+		String[] directoryChangeParts = directoryChange.split(pathSeparator);
 		String result = "success";
 		
 		for (int i=0; i<directoryChangeParts.length; i++)
@@ -203,6 +203,16 @@ public class Serveur
 	 */
 	public static void main(String[] args) throws Exception
 	{		
+		// en windows les chemins sont separes de \ alors qu en mac et linux ils sont separes par /
+		final String pathSeparator;
+		if (System.getProperty("os.name").contains("Windows"))
+		{
+			pathSeparator = "\\\\";
+		} else
+		{
+			pathSeparator = "/";
+		}
+		
 		// dossier root du serveur.
 		final String directory = System.getProperty("user.dir");
 		
@@ -282,7 +292,7 @@ public class Serveur
 			{
 				// Important : la fonction accept() est bloquante : attend qu'un prochain client se connecte
 				// Une nouvelle connexion: on incrémente le compteur clientNumber
-				new ClientHandler(listener.accept(), clientNumber++, directory).start();
+				new ClientHandler(listener.accept(), clientNumber++, directory, pathSeparator).start();
 			}
 		}
 		finally
@@ -304,13 +314,15 @@ public class Serveur
 		private int clientNumber;
 		private String currentDirectory;
 		final String rootDirectory;
+		final String pathSeparator;
 		
-		public ClientHandler(Socket socket, int clientNumber, String directory)
+		public ClientHandler(Socket socket, int clientNumber, String directory, String pathSeparator)
 		{
 			this.socket = socket;
 			this.clientNumber = clientNumber;
 			this.currentDirectory = directory; // Au début le dossier courant est le dossier root.
 			this.rootDirectory = directory;
+			this.pathSeparator = pathSeparator;
 			System.out.println("New connection with client#" + clientNumber + " at " + socket);
 		}
 		
@@ -348,6 +360,18 @@ public class Serveur
 							break; // Fermeture de la connection par le client, on va passer au finally.
 						} else
 						{
+							
+							File directoryExists = new File(currentDirectory);
+							if (!directoryExists.isDirectory())
+							{
+								currentDirectory = rootDirectory;
+								out.writeUTF("Seems like another client deleted the directory you were in. You have been sent to root directory.");
+								continue;
+							} else
+							{
+								out.writeUTF("all good");
+							}
+							
 							// On prend que le premier mot de la commande.
 							String commandFirst = command.split(" ")[0];
 							switch (commandFirst) {
@@ -355,8 +379,7 @@ public class Serveur
 								
 								// On va changer le dossier courant.
 								
-								String cdResult = cdCommand(command.split(" ")[1], currentDirectory, rootDirectory);
-								
+								String cdResult = cdCommand(command.split(" ")[1], currentDirectory, rootDirectory, pathSeparator);
 								if (cdResult.startsWith("Directory "))
 								{
 									out.writeUTF(cdResult); // Il y a eu une erreur
@@ -379,10 +402,10 @@ public class Serveur
 								{
 									if (lsResults[i].isDirectory())
 									{
-										answer = answer + "[Directory] " + lsResults[i].toString().split("/")[lsResults[i].toString().split("/").length-1] + "\n";
+										answer = answer + "[Directory] " + lsResults[i].toString().split(pathSeparator)[lsResults[i].toString().split(pathSeparator).length-1] + "\n";
 									} else
 									{
-										answer = answer + "[File] " + lsResults[i].toString().split("/")[lsResults[i].toString().split("/").length-1] + "\n";
+										answer = answer + "[File] " + lsResults[i].toString().split(pathSeparator)[lsResults[i].toString().split(pathSeparator).length-1] + "\n";
 									}
 								}
 								
@@ -399,7 +422,7 @@ public class Serveur
 								boolean mkdirExists = false;
 								for (int i=0; i < mkdirResults.length; i++)
 								{
-									if (mkdirFile.equals(mkdirResults[i].toString().split("/")[mkdirResults[i].toString().split("/").length-1]))
+									if (mkdirFile.equals(mkdirResults[i].toString().split(pathSeparator)[mkdirResults[i].toString().split(pathSeparator).length-1]))
 									{
 										mkdirExists = true;
 									}
@@ -443,12 +466,12 @@ public class Serveur
 								String deleteName = command.split(" ")[1];
 								String deleteDirectory = currentDirectory;
 								
-								if (deleteName.split("/").length>1)
+								if (deleteName.split(pathSeparator).length>1)
 								{
 									int parentDirectoryDelete = deleteName.lastIndexOf("/");
 									String directoryChangeDelete = deleteName.substring(0, parentDirectoryDelete);
 									deleteName = deleteName.substring(parentDirectoryDelete);
-									String deleteResult = cdCommand(directoryChangeDelete, currentDirectory, rootDirectory);
+									String deleteResult = cdCommand(directoryChangeDelete, currentDirectory, rootDirectory, pathSeparator);
 									
 									if (deleteResult.startsWith("Directory "))
 									{
@@ -470,7 +493,7 @@ public class Serveur
 						
 								for (int i=0; i < deleteResults.length; i++)
 								{
-									if (deleteName.equals(deleteResults[i].toString().split("/")[deleteResults[i].toString().split("/").length-1]))
+									if (deleteName.equals(deleteResults[i].toString().split(pathSeparator)[deleteResults[i].toString().split(pathSeparator).length-1]))
 									{
 										deleteExists = true;
 									}
@@ -514,7 +537,7 @@ public class Serveur
 								boolean uploadexists = false;
 								for (int i=0; i < uploadResults.length; i++)
 								{
-									if (fileUpload.equals(uploadResults[i].toString().split("/")[uploadResults[i].toString().split("/").length-1]))
+									if (fileUpload.equals(uploadResults[i].toString().split(pathSeparator)[uploadResults[i].toString().split(pathSeparator).length-1]))
 									{
 										uploadexists = true;
 									}
@@ -550,7 +573,7 @@ public class Serveur
 								}
 								fileOutput.close();
 
-								out.writeUTF("File " + fileUpload + " has been uploaded successfully " + nbrBytes);
+								out.writeUTF("File " + fileUpload + " has been uploaded successfully ");
 
 								break;
 								
@@ -560,12 +583,12 @@ public class Serveur
 								String downloadDirectory = currentDirectory;
 								
 								// On regarde d abord si le fichier est donne en chemin. Si c est le cas on va considerer le chemin.
-								if (fileDownload.split("/").length > 1)
+								if (fileDownload.split(pathSeparator).length > 1)
 								{
 									int parentDirectoryDownload = fileDownload.lastIndexOf("/");
 									String directoryChange = fileDownload.substring(0, parentDirectoryDownload);
 									fileDownload = fileDownload.substring(parentDirectoryDownload+1);
-									String downloadResult = cdCommand(directoryChange, currentDirectory, rootDirectory);
+									String downloadResult = cdCommand(directoryChange, currentDirectory, rootDirectory, pathSeparator);
 									
 									if (downloadResult.startsWith("Directory "))
 									{
@@ -586,7 +609,7 @@ public class Serveur
 								boolean downloadexists = false;
 								for (int i=0; i < downloadResults.length; i++)
 								{
-									if (fileDownload.equals(downloadResults[i].toString().split("/")[downloadResults[i].toString().split("/").length-1]))
+									if (fileDownload.equals(downloadResults[i].toString().split(pathSeparator)[downloadResults[i].toString().split(pathSeparator).length-1]))
 									{
 										downloadexists = true;
 									}
@@ -599,6 +622,7 @@ public class Serveur
 									if (command.split(" ")[command.split(" ").length-1].equals("-z"))
 									{
 										downloadFile(fileDownload, downloadDirectory, out, true);
+										new File(downloadDirectory + "/" + fileDownload.split("\\.")[0] + ".zip").delete();
 										out.writeUTF("File " + fileDownload.split("\\.")[0] + ".zip" + " has been downloaded successfully");
 									} else
 									{
@@ -626,6 +650,9 @@ public class Serveur
 						// Par exemple si on fait un ctrl+c dans le terminal. Dans ce cas, le serveur va couper la connection avec ce client.
 						System.out.println("ended connection abruptly");
 						break;
+					} catch (NullPointerException e) 
+					{
+						out.writeUTF("Seems like another client deleted the file you were in, you have been sent to the root directory");
 					}
 				}
 				

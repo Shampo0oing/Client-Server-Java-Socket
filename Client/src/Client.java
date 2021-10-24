@@ -87,6 +87,17 @@ public class Client
 	 */
 	public static void main(String[] args) throws Exception
 	{
+		// en windows les chemins sont separes de \ alors qu en mac et linux ils sont separes par /
+		final String pathSeparator;
+		if (System.getProperty("os.name").contains("Windows"))
+		{
+			pathSeparator = "\\\\";
+		} else
+		{
+			pathSeparator = "/";
+		}
+
+		
 		// Adresse du port et serveur
 		String serverAddress = null;
 		int serverPort = 0;
@@ -224,6 +235,15 @@ public class Client
 						}
 						
 						out.writeUTF(command);
+						
+						// On verifie que le dossier dans lequel se trouvait le client existe toujours. Peut ne pas etre le cas si un autre client a supprime le dossier.
+						String directoryExistsCD = in.readUTF();
+						if (!directoryExistsCD.equals("all good"))
+						{
+							System.out.println(directoryExistsCD);
+							break;
+						}
+						
 						String cdAnswer = in.readUTF();
 						System.out.println(cdAnswer);
 						break;
@@ -237,6 +257,15 @@ public class Client
 						}
 						
 						out.writeUTF(command);
+						
+						// On verifie que le dossier dans lequel se trouvait le client existe toujours. Peut ne pas etre le cas si un autre client a supprime le dossier.
+						String directoryExistsLS = in.readUTF();
+						if (!directoryExistsLS.equals("all good"))
+						{
+							System.out.println(directoryExistsLS);
+							break;
+						}
+						
 						String lsAnswer = in.readUTF();
 						System.out.println(lsAnswer);
 						break;
@@ -250,6 +279,15 @@ public class Client
 						}
 						
 						out.writeUTF(command);
+						
+						// On verifie que le dossier dans lequel se trouvait le client existe toujours. Peut ne pas etre le cas si un autre client a supprime le dossier.
+						String directoryExistsMKDIR = in.readUTF();
+						if (!directoryExistsMKDIR.equals("all good"))
+						{
+							System.out.println(directoryExistsMKDIR);
+							break;
+						}
+						
 						String mkdirAnswer = in.readUTF();
 						if (!mkdirAnswer.endsWith("successfully created"))
 						{
@@ -285,6 +323,15 @@ public class Client
 						}
 						
 						out.writeUTF(command);
+						
+						// On verifie que le dossier dans lequel se trouvait le client existe toujours. Peut ne pas etre le cas si un autre client a supprime le dossier.
+						String directoryExistsDELETE = in.readUTF();
+						if (!directoryExistsDELETE.equals("all good"))
+						{
+							System.out.println(directoryExistsDELETE);
+							break;
+						}
+						
 						String deleteAnswer = in.readUTF();
 						System.out.println(deleteAnswer);
 						
@@ -305,7 +352,7 @@ public class Client
 						boolean uploadExists = false;
 						for (int i=0; i < uploadResults.length; i++)
 						{
-							if (uploadFile.equals(uploadResults[i].toString().split("/")[uploadResults[i].toString().split("/").length-1]))
+							if (uploadFile.equals(uploadResults[i].toString().split(pathSeparator)[uploadResults[i].toString().split(pathSeparator).length-1]))
 							{
 								uploadExists = true;
 							}
@@ -319,6 +366,14 @@ public class Client
 						
 						// Arrive a ce point on est sur que le fichier existe donc on envoie la commande au serveur.
 						out.writeUTF(command);
+						
+						// On verifie que le dossier dans lequel se trouvait le client existe toujours. Peut ne pas etre le cas si un autre client a supprime le dossier.
+						String directoryExistsUPLOAD = in.readUTF();
+						if (!directoryExistsUPLOAD.equals("all good"))
+						{
+							System.out.println(directoryExistsUPLOAD);
+							break;
+						}
 						
 						// on verifie avec le serveur si le fichier existe de son cote.
 						String uploadOverwriteConflict = in.readUTF();
@@ -374,14 +429,14 @@ public class Client
 						boolean downloadExists = false;
 						for (int i=0; i<downloadResults.length; i++)
 						{
-							if (downloadFile.split("/")[downloadFile.split("/").length-1].equals(downloadResults[i].toString().split("/")[downloadResults[i].toString().split("/").length-1]))
+							if (downloadFile.split(pathSeparator)[downloadFile.split(pathSeparator).length-1].equals(downloadResults[i].toString().split(pathSeparator)[downloadResults[i].toString().split(pathSeparator).length-1]))
 							{
 								downloadExists = true;
 							}
 						}
 						if (downloadExists)
 						{
-							System.out.println("A file named " + downloadFile.split("/")[downloadFile.split("/").length-1] + " already exists in this directory. Do you want to overwrite it? [y/n]");
+							System.out.println("A file named " + downloadFile.split(pathSeparator)[downloadFile.split(pathSeparator).length-1] + " already exists in this directory. Do you want to overwrite it? [y/n]");
 							String downloadOverwriteAnswer = reader.nextLine();
 							while (!downloadOverwriteAnswer.equals("y") && !downloadOverwriteAnswer.equals("Y") && !downloadOverwriteAnswer.equals("n") && !downloadOverwriteAnswer.equals("N"))
 							{
@@ -398,6 +453,14 @@ public class Client
 						// Arrive a ce point on est sur que le client veut faire le download. On va verifier cote serveur que le fichier existe.
 						out.writeUTF(command);
 						
+						// On verifie que le dossier dans lequel se trouvait le client existe toujours. Peut ne pas etre le cas si un autre client a supprime le dossier.
+						String directoryExistsDOWNLOAD = in.readUTF();
+						if (!directoryExistsDOWNLOAD.equals("all good"))
+						{
+							System.out.println(directoryExistsDOWNLOAD);
+							break;
+						}
+						
 						String downloadAnswer = in.readUTF();
 						if (downloadAnswer.startsWith("Directory ") || downloadAnswer.startsWith("File "))
 						{
@@ -407,7 +470,7 @@ public class Client
 						
 						// Arrive ici on est sur que le download va se faire.
 						
-						File myFile = new File(downloadCurrent + "/" + downloadFile.split("/")[downloadFile.split("/").length-1]);
+						File myFile = new File(downloadCurrent + "/" + downloadFile.split(pathSeparator)[downloadFile.split(pathSeparator).length-1]);
 						FileOutputStream fileOutput = new FileOutputStream(myFile);
 						int nbrBytes = in.readInt();
 						int count = 0;
@@ -445,7 +508,7 @@ public class Client
 				out.close();
 				socket.close();
 				break;
-			}
+			} 
 		}
 	}
 }
