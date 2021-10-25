@@ -57,11 +57,17 @@ public class Client
 		return true;
 	}
 	
-	private static void uploadFile(String file, DataOutputStream out)
+	/*
+	 * uploadFile() va envoyer le fichier designe au serveur
+	 * file est le fichier que l on veut envoyer
+	 * out est le stream sur lequel on envoie le fichier
+	 * pathSeparator est le caractere de separation d un chemin (\ en windows et / pour le reste)
+	 */
+	private static void uploadFile(String file, DataOutputStream out, String pathSeparator)
 	{
 		try 
 		{
-			File myFile = new File(System.getProperty("user.dir") + "/" + file);
+			File myFile = new File(System.getProperty("user.dir") + pathSeparator + file);
 			FileInputStream fileInput = new FileInputStream(myFile);
 			int nbrBytes = (int) myFile.length();
 			out.writeInt(nbrBytes);
@@ -203,7 +209,7 @@ public class Client
 		{
 			try
 			{
-				// Pour l'instant y'a juste "write a command" mais on peut changer genre afficher le chemin actuel ou quoi si vous préférez.
+				// Demande d une commande au client
 				System.out.print("write a command: ");
 				String command = reader.nextLine();
 				
@@ -218,8 +224,8 @@ public class Client
 					break;
 				} else
 				{
-					// At socket creation it sends an empty command. 
-					// This is handled here, we just go to the next iteration of the wile loop
+					// A la creation du socket une commande vide est envoyee 
+					// Ici on va donc dire que si la commande est vide on fait rien et on passe a la prochaine iteration du while
 					if (command.equals("")) {continue;} 
 					
 					// On prend que le premier mot de la commande.
@@ -228,6 +234,7 @@ public class Client
 					switch(commandFirst) {
 					case "cd":
 						
+						// On verifie les arguments
 						if (command.split(" ").length != 2)
 						{
 							System.out.println("cd command expects only one argument");
@@ -250,6 +257,7 @@ public class Client
 						
 					case "ls":
 						
+						// On verifie les arguments
 						if (command.split(" ").length != 1)
 						{
 							System.out.println("ls command doesn't take any arguments");
@@ -272,6 +280,7 @@ public class Client
 					
 					case "mkdir":
 						
+						// On verifie les arguments
 						if (command.split(" ").length != 2)
 						{
 							System.out.println("mkdir command expects only one argument");
@@ -291,6 +300,7 @@ public class Client
 						String mkdirAnswer = in.readUTF();
 						if (!mkdirAnswer.endsWith("successfully created"))
 						{
+							// Lorsqu on est ici ca veut dire que le dossier existait deja on va demander au client si il veut overwrite
 							System.out.println(mkdirAnswer);
 							String mkdirOverwriteAnswer = reader.nextLine();
 							
@@ -316,6 +326,7 @@ public class Client
 					
 					case "delete":
 						
+						// On verifie les arguments
 						if (command.split(" ").length != 2)
 						{
 							System.out.println("delete command expects only one argument");
@@ -339,6 +350,7 @@ public class Client
 						
 					case "upload":
 						
+						// On verifie les arguments
 						if (command.split(" ").length != 2)
 						{
 							System.out.println("upload command expects only one argument");
@@ -399,7 +411,7 @@ public class Client
 						}
 						
 						// Arrive ici l upload doit se faire.
-						uploadFile(uploadFile, out);
+						uploadFile(uploadFile, out, pathSeparator);
 						
 						String uploadAnswer = in.readUTF();
 						System.out.println(uploadAnswer);
@@ -408,6 +420,7 @@ public class Client
 						
 					case "download":
 						
+						// On verifie les arguments
 						if (command.split(" ").length != 2 && command.split(" ").length != 3)
 						{
 							System.out.println("download command expects either one or 2 arguments");
@@ -436,6 +449,7 @@ public class Client
 						}
 						if (downloadExists)
 						{
+							// Le fichier existe deja cote client on va lui demander si il veut overwrite
 							System.out.println("A file named " + downloadFile.split(pathSeparator)[downloadFile.split(pathSeparator).length-1] + " already exists in this directory. Do you want to overwrite it? [y/n]");
 							String downloadOverwriteAnswer = reader.nextLine();
 							while (!downloadOverwriteAnswer.equals("y") && !downloadOverwriteAnswer.equals("Y") && !downloadOverwriteAnswer.equals("n") && !downloadOverwriteAnswer.equals("N"))
@@ -445,6 +459,7 @@ public class Client
 							}
 							if (downloadOverwriteAnswer.equals("n") || downloadOverwriteAnswer.equals("N"))
 							{
+								// Le client veut pas overwrite donc download ne va pas se faire
 								System.out.println("Download Aborted");
 								break;
 							}
@@ -470,7 +485,7 @@ public class Client
 						
 						// Arrive ici on est sur que le download va se faire.
 						
-						File myFile = new File(downloadCurrent + "/" + downloadFile.split(pathSeparator)[downloadFile.split(pathSeparator).length-1]);
+						File myFile = new File(downloadCurrent + pathSeparator + downloadFile.split(pathSeparator)[downloadFile.split(pathSeparator).length-1]);
 						FileOutputStream fileOutput = new FileOutputStream(myFile);
 						int nbrBytes = in.readInt();
 						int count = 0;
@@ -494,6 +509,7 @@ public class Client
 				}
 			} catch (SocketException e)
 			{
+				// Peut arriver si le serveur s arrete de maniere abrupte. On va arreter le client
 				System.out.println("The server disconnected. There is no endpoint to client socket therefore the client will shut down now.");
 				reader.close();
 				in.close();
@@ -502,6 +518,7 @@ public class Client
 				break;
 			} catch (EOFException e)
 			{
+				// Peut arriver si le serveur s arrete de maniere abrupte. On va arreter le client
 				System.out.println("The server disconnected. There is no endpoint to client socket therefore the client will shut down now.");
 				reader.close();
 				in.close();

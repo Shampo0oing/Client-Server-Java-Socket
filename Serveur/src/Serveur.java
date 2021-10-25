@@ -13,7 +13,8 @@ import java.io.FileOutputStream;
 import java.util.zip.ZipOutputStream;
 import java.util.zip.ZipEntry;
 import java.time.format.DateTimeFormatter;  
-import java.time.LocalDateTime;    
+import java.time.LocalDateTime;  
+import java.net.BindException;
 
 public class Serveur 
 {
@@ -60,11 +61,13 @@ public class Serveur
 		}
 		return true;
 	}
+	
 	/*
 	 * cdCommand() change de dossier en fonction de l argument. Si le dossier ou on veut aller n existe pas on retourne un message d erreur au client qui l affichera.
 	 * directoryChange est l argument i.e. c est le dossier ou on veut aller.
 	 * newDirectory est dossier courant (ou on se trouve) cote serveur.
 	 * rootDirectory est le dossier racine du serveur.
+	 * pathSeparator est le caractere de separation d un chemin (\ en windows et / pour le reste)
 	 */
 	private static String cdCommand(String directoryChange, String currentDirectory, String rootDirectory, String pathSeparator)
 	{
@@ -79,19 +82,19 @@ public class Serveur
 				// Si on est pas encore au dossier root, on va aller au directory parent. Si on y est on fait rien.
 				if (!currentDirectory.equals(rootDirectory)) 
 				{
-					int parentDirectoryIndex = currentDirectory.lastIndexOf("/");
+					int parentDirectoryIndex = currentDirectory.lastIndexOf(pathSeparator);
 					currentDirectory = currentDirectory.substring(0, parentDirectoryIndex);
 				} 
 			} else // On veut aller à un directory fils.
 			{
-				File cdCheckDirectory = new File(currentDirectory + ("/") + directoryChangeParts[i]);
+				File cdCheckDirectory = new File(currentDirectory + pathSeparator + directoryChangeParts[i]);
 				if (cdCheckDirectory.isDirectory()) // Directory exists
 				{
-					currentDirectory = currentDirectory + ("/") + directoryChangeParts[i];
+					currentDirectory = currentDirectory + pathSeparator + directoryChangeParts[i];
 				} else // Directory doesn't exist
 				{
 					// Affichera une erreur expliquant le premier dossier du chemin qui fait un bug.
-					result = "Directory " + currentDirectory + ("/") + directoryChangeParts[i] + " mentionned in path doesn't exist (using cd command)";
+					result = "Directory " + currentDirectory + pathSeparator + directoryChangeParts[i] + " mentionned in path doesn't exist (using cd command)";
 					break;
 				}
 			}
@@ -105,8 +108,15 @@ public class Serveur
 		}
 	}
 	
-	
-	private static void downloadFile(String file, String downloadDirectory, DataOutputStream out, boolean zipped)
+	/*
+	 * downloadFile() s occupe d envoyer un fichier (au format zip ou non) au client
+	 * file est le nom du fichier qu il faut envoyer
+	 * downloadDirectory est le dossier dans lequel se trouve le fichier a envoyer
+	 * out est le stream sur lequel envoyer le fichier
+	 * zipped est true si il faut compresser le fichier. False si il faut envoyer le fichier tel qu il est
+	 * pathSeparator est le caractere de separation d un chemin (\ en windows et / pour le reste)
+	 */
+	private static void downloadFile(String file, String downloadDirectory, DataOutputStream out, boolean zipped, String pathSeparator)
 	{
 		
 		if (zipped) 
@@ -115,9 +125,8 @@ public class Serveur
 			{
 				// Grandement inspire d un contenu internet (https://www.baeldung.com/java-compress-and-uncompress)
 				// On va d abord creer le fichier compresse cote serveur puis le transferer cote client puis le supprimer cote serveur.
-				// Il y a probablement un moyen plus efficace de le faire mais j ai pas reussi.
-				String sourceFile = downloadDirectory + "/" + file;
-				String fileZIP = downloadDirectory + "/" + file.split("\\.")[0] + ".zip";
+				String sourceFile = downloadDirectory + pathSeparator + file;
+				String fileZIP = downloadDirectory +pathSeparator + file.split("\\.")[0] + ".zip";
 		        FileOutputStream fos = new FileOutputStream(fileZIP);
 		        ZipOutputStream zipOut = new ZipOutputStream(fos);
 		        File fileToZip = new File(sourceFile);
@@ -150,7 +159,7 @@ public class Serveur
 				fileInput.close();
 				
 				// On va supprimer le fichier zip cree cote serveur.
-				
+				myFile.delete();
 		        
 			} catch(IOException e)
 			{
@@ -160,7 +169,8 @@ public class Serveur
 		{
 			try 
 			{
-				File myFile = new File(downloadDirectory + "/" + file);
+				// Ici on transmet simplement le fichier au client
+				File myFile = new File(downloadDirectory + pathSeparator + file);
 				FileInputStream fileInput = new FileInputStream(myFile);
 				int nbrBytes = (int) myFile.length();
 				out.writeInt(nbrBytes);
@@ -183,6 +193,10 @@ public class Serveur
 		
 	}
 	
+	/*
+	 * deleteDirectory() est appele lorsque l on veut supprimer un dossier non vide. Vide le contenu du dossier puis le dossier lui meme
+	 * path est le chemin qui mene au dossier que l on veut supprimer
+	 */
 	private static void deleteDirectory(String path)
 	{
 		File deleteDirectory = new File(path);
@@ -226,10 +240,10 @@ public class Serveur
 		// Scanner pour lire les commandes. Ici, il sera fermé après la demande d'adresse et de port.
 		Scanner reader = new Scanner(System.in);
 		
+		// ############ Partie 1 connection client et serveur ############
+		
 		// On demande une adresse serveur et on vérifie la validité.
 		Boolean validServerAddress = false;
-		
-		// ############ Partie 1 connection client et serveur ############
 		
 		while (!validServerAddress)
 		{
@@ -278,7 +292,14 @@ public class Serveur
 		InetAddress serverIP = InetAddress.getByName(serverAddress);
 		
 		// Association de l'adresse et du port à la connexion
-		listener.bind(new InetSocketAddress(serverIP, serverPort));
+		try
+		{
+			listener.bind(new InetSocketAddress(serverIP, serverPort));
+		} catch(BindException e) // Peut arriver si on donne n importe quelle adresse au serveur
+		{
+			System.out.println("Couldn't assign requested address. Restart app to retry.");
+			System.exit(0);
+		}
 		
 		System.out.format("the server is running on %s:%d%n", serverAddress, serverPort);
 		
@@ -348,19 +369,21 @@ public class Serveur
 				while (true) {
 					try 
 					{
-						// lecture de la commande envoyée par le client.
+						// lecture de la commande envoyee par le client.
 						String command = in.readUTF();
+						
+						// On affiche cote serveur la commande recue avec l adresse du client et l heure
 						LocalDateTime now = LocalDateTime.now();  
 						System.out.format("[%s // %s] %s\n", socket.getRemoteSocketAddress(), dtf.format(now), command);
 						
-						//System.out.println("command recieved is " + command);
 						
 						if (command.equals("exit"))
 						{
 							break; // Fermeture de la connection par le client, on va passer au finally.
 						} else
 						{
-							
+							// On verifie d abord que le dossier dans lequel le client se trouve existe toujours
+							// C est possible que ce soit pas le cas si un autre client l a supprime
 							File directoryExists = new File(currentDirectory);
 							if (!directoryExists.isDirectory())
 							{
@@ -419,6 +442,8 @@ public class Serveur
 								String mkdirFile = command.split(" ")[1];
 								File mkdirCurrent = new File(currentDirectory);
 								File[] mkdirResults = mkdirCurrent.listFiles();
+								
+								// On regarde d abord si le dossier existe deja
 								boolean mkdirExists = false;
 								for (int i=0; i < mkdirResults.length; i++)
 								{
@@ -440,16 +465,16 @@ public class Serveur
 									} else 
 									{
 										// Le client veut overwrite le dossier existant. On va commencer par le supprimer
-										deleteDirectory(mkdirCurrent + "/" + mkdirFile);
-										File existingDirectory = new File(mkdirCurrent + "/" + mkdirFile);
+										deleteDirectory(mkdirCurrent + pathSeparator + mkdirFile);
+										File existingDirectory = new File(mkdirCurrent + pathSeparator + mkdirFile);
 										if (!existingDirectory.delete())
 										{
-											out.writeUTF("An error occured while to overwrite directory" + mkdirFile);
+											out.writeUTF("An error occured while trying to overwrite directory" + mkdirFile);
 										}
 									}
 								}
 								
-								File newMkdir = new File(mkdirCurrent + "/" + mkdirFile);
+								File newMkdir = new File(mkdirCurrent + pathSeparator + mkdirFile);
 								if (newMkdir.mkdir())
 								{
 									out.writeUTF(mkdirFile + " was successfully created");
@@ -468,7 +493,7 @@ public class Serveur
 								
 								if (deleteName.split(pathSeparator).length>1)
 								{
-									int parentDirectoryDelete = deleteName.lastIndexOf("/");
+									int parentDirectoryDelete = deleteName.lastIndexOf(pathSeparator);
 									String directoryChangeDelete = deleteName.substring(0, parentDirectoryDelete);
 									deleteName = deleteName.substring(parentDirectoryDelete);
 									String deleteResult = cdCommand(directoryChangeDelete, currentDirectory, rootDirectory, pathSeparator);
@@ -501,10 +526,11 @@ public class Serveur
 								
 								if (!deleteExists)
 								{
-									out.writeUTF("File/Directory " + deleteName + "doesn't exist");
+									out.writeUTF("File/Directory " + deleteName + " doesn't exist");
+									break;
 								}
 								
-								File deleteFile = new File(currentDirectory + "/" + deleteName);
+								File deleteFile = new File(currentDirectory + pathSeparator + deleteName);
 								try 
 								{
 									if (deleteFile.delete())
@@ -514,7 +540,7 @@ public class Serveur
 									{
 										// Comme on est sur que le fichier existe a ce point cela veut dire qu il s agit d un dossier non vide.
 										// On va donc supprimer tous les fichiers un par un puis le dossier.
-										deleteDirectory(currentDirectory + "/" + deleteName);
+										deleteDirectory(currentDirectory + pathSeparator + deleteName);
 										deleteFile.delete();
 										out.writeUTF(deleteName + " has been deleted as well as all underlying directories");
 									}
@@ -526,9 +552,6 @@ public class Serveur
 								break;
 								
 							case "upload":
-								
-								// System.out.println("Received " + command);
-								
 								
 								// On regarde si le fichier existe cote serveur.
 								String fileUpload = command.split(" ")[1];
@@ -560,7 +583,7 @@ public class Serveur
 								
 								// Arrive ici l upload va se faire.
 								
-								File myFile = new File(currentDirectory + "/" + fileUpload);
+								File myFile = new File(currentDirectory + pathSeparator + fileUpload);
 								FileOutputStream fileOutput = new FileOutputStream(myFile);
 								int nbrBytes = in.readInt();
 								int count = 0;
@@ -585,7 +608,7 @@ public class Serveur
 								// On regarde d abord si le fichier est donne en chemin. Si c est le cas on va considerer le chemin.
 								if (fileDownload.split(pathSeparator).length > 1)
 								{
-									int parentDirectoryDownload = fileDownload.lastIndexOf("/");
+									int parentDirectoryDownload = fileDownload.lastIndexOf(pathSeparator);
 									String directoryChange = fileDownload.substring(0, parentDirectoryDownload);
 									fileDownload = fileDownload.substring(parentDirectoryDownload+1);
 									String downloadResult = cdCommand(directoryChange, currentDirectory, rootDirectory, pathSeparator);
@@ -621,12 +644,11 @@ public class Serveur
 									out.writeUTF("Prepare Download");
 									if (command.split(" ")[command.split(" ").length-1].equals("-z"))
 									{
-										downloadFile(fileDownload, downloadDirectory, out, true);
-										new File(downloadDirectory + "/" + fileDownload.split("\\.")[0] + ".zip").delete();
+										downloadFile(fileDownload, downloadDirectory, out, true, pathSeparator);
 										out.writeUTF("File " + fileDownload.split("\\.")[0] + ".zip" + " has been downloaded successfully");
 									} else
 									{
-										downloadFile(fileDownload, downloadDirectory, out, false);
+										downloadFile(fileDownload, downloadDirectory, out, false, pathSeparator);
 										out.writeUTF("File " + fileDownload + " has been downloaded successfully");
 									}
 								} else
